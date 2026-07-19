@@ -234,6 +234,47 @@ class _ComposedLoaderLayer(torch.nn.Module):
         self.dt_bias.weight_loader = default_weight_loader
 
 
+class _DuplicateCompletionLayer(torch.nn.Module):
+    """Two equal-sized parameters expose duplicate-count completion."""
+
+    def __init__(self):
+        super().__init__()
+        self.left = torch.nn.Parameter(torch.zeros(4))
+        self.right = torch.nn.Parameter(torch.zeros(4))
+
+
+def test_layerwise_reload_rejects_duplicate_that_masks_missing_sibling(monkeypatch):
+    layer = _DuplicateCompletionLayer()
+    model = torch.nn.Sequential(layer)
+
+    def materialize_with_sentinel(meta_tensor):
+        tensor = torch.empty_strided(
+            size=tuple(meta_tensor.size()),
+            stride=tuple(meta_tensor.stride()),
+            dtype=meta_tensor.dtype,
+            requires_grad=False,
+        )
+        tensor.fill_(float("nan"))
+        tensor.__class__ = meta_tensor.__class__
+        tensor.__dict__ = meta_tensor.__dict__.copy()
+        return tensor
+
+    monkeypatch.setattr(
+        reload_meta, "materialize_meta_tensor", materialize_with_sentinel
+    )
+
+    record_metadata_for_reloading(model)
+    initialize_layerwise_reload(model)
+
+    # Two applications of left reach the layer's eight-element total while
+    # right is absent. Completion must be based on application identity, not
+    # the aggregate number of copied elements.
+    with pytest.raises(ValueError, match="duplicate|missing"):
+        layer.left.weight_loader(layer.left, torch.ones(4))
+        layer.left.weight_loader(layer.left, torch.full((4,), 2.0))
+        finalize_layerwise_reload(model, model_config=None)
+
+
 def test_layerwise_reload_composed_loader_does_not_drop_params(monkeypatch):
     # Regression test: a composed_weight_loader param (A) used to double-count
     # its elements, finalizing the layer before the trailing param (D) was

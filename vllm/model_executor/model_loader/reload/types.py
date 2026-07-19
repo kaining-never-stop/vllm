@@ -26,6 +26,13 @@ class LayerReloadingInfo:
     # used by `online_process_loader` to buffer args and tensors until ready to load
     loaded_weights: list[tuple[str, BoundArguments]] = field(default_factory=list)
 
+    # Distinguishes direct, packed-shard, and expert-shard applications. Element
+    # counts remain useful for scheduling layer processing, but cannot establish
+    # that every required application occurred exactly once.
+    applied_weight_keys: set[tuple[str, tuple[tuple[str, str], ...]]] = field(
+        default_factory=set
+    )
+
     # kernel formatted tensors, copied into by `_layerwise_process` when reloading
     kernel_tensors: LayerTensors | None = None
 

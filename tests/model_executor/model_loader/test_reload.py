@@ -243,6 +243,18 @@ class _DuplicateCompletionLayer(torch.nn.Module):
         self.right = torch.nn.Parameter(torch.zeros(4))
 
 
+class _PackedApplicationLayer(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.zeros(8))
+
+        def packed_loader(param, loaded_weight, loaded_shard_id):
+            offset = {"q": 0, "k": 4}[loaded_shard_id]
+            param.data[offset : offset + loaded_weight.numel()].copy_(loaded_weight)
+
+        self.weight.weight_loader = packed_loader
+
+
 def test_layerwise_reload_rejects_duplicate_that_masks_missing_sibling(monkeypatch):
     layer = _DuplicateCompletionLayer()
     model = torch.nn.Sequential(layer)
@@ -273,6 +285,20 @@ def test_layerwise_reload_rejects_duplicate_that_masks_missing_sibling(monkeypat
         layer.left.weight_loader(layer.left, torch.ones(4))
         layer.left.weight_loader(layer.left, torch.full((4,), 2.0))
         finalize_layerwise_reload(model, model_config=None)
+
+
+def test_layerwise_reload_allows_distinct_packed_shard_applications():
+    layer = _PackedApplicationLayer()
+    model = torch.nn.Sequential(layer)
+
+    record_metadata_for_reloading(model)
+    initialize_layerwise_reload(model)
+    layer.weight.weight_loader(layer.weight, torch.ones(4), "q")
+    layer.weight.weight_loader(layer.weight, torch.full((4,), 2.0), "k")
+    finalize_layerwise_reload(model, model_config=None)
+
+    assert torch.equal(layer.weight[:4], torch.ones(4))
+    assert torch.equal(layer.weight[4:], torch.full((4,), 2.0))
 
 
 def test_layerwise_reload_composed_loader_does_not_drop_params(monkeypatch):

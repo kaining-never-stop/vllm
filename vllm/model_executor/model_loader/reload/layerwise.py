@@ -183,6 +183,15 @@ def make_online_process_loader(layer: torch.nn.Module, param_name: str) -> Calla
         bound_args = loader_signature.bind(*args, **kwargs)
         bound_args.apply_defaults()
 
+        application_key = _weight_application_key(param_name, bound_args)
+        if application_key in info.applied_weight_keys:
+            selectors = dict(application_key[1])
+            raise ValueError(
+                "duplicate weight application: "
+                f"parameter={param_name!r}, selectors={selectors!r}"
+            )
+        info.applied_weight_keys.add(application_key)
+
         # Buffer loaded weights, track loading progress
         info.loaded_weights.append((param_name, bound_args))
         num_loaded, ret = get_numel_loaded(original_loader, bound_args)
@@ -223,6 +232,24 @@ def make_online_process_loader(layer: torch.nn.Module, param_name: str) -> Calla
         return ret
 
     return online_process_loader
+
+
+def _weight_application_key(
+    param_name: str, bound_args: inspect.BoundArguments
+) -> tuple[str, tuple[tuple[str, str], ...]]:
+    """Return the stable identity selectors exposed by common weight loaders."""
+    selector_names = (
+        "weight_name",
+        "shard_id",
+        "loaded_shard_id",
+        "expert_id",
+    )
+    selectors = tuple(
+        (name, repr(bound_args.arguments[name]))
+        for name in selector_names
+        if name in bound_args.arguments
+    )
+    return param_name, selectors
 
 
 def finalize_layerwise_processing(model: torch.nn.Module, model_config: ModelConfig):

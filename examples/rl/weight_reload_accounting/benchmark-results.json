@@ -1,0 +1,125 @@
+{
+  "cases": [
+    {
+      "certificate_by_rank_count": {
+        "1": {
+          "min_ms": 0.004,
+          "p50_ms": 0.004,
+          "p95_ms": 0.037,
+          "serialized_bytes": 323
+        },
+        "2": {
+          "min_ms": 0.007,
+          "p50_ms": 0.008,
+          "p95_ms": 0.041,
+          "serialized_bytes": 392
+        },
+        "8": {
+          "min_ms": 0.026,
+          "p50_ms": 0.026,
+          "p95_ms": 0.059,
+          "serialized_bytes": 806
+        }
+      },
+      "manifest": {
+        "min_ms": 0.517,
+        "p50_ms": 0.523,
+        "p95_ms": 0.628
+      },
+      "parameter_count": 1000,
+      "plan": {
+        "min_ms": 1.531,
+        "p50_ms": 1.553,
+        "p95_ms": 1.618
+      },
+      "rank_local_receipt": {
+        "min_ms": 1.017,
+        "p50_ms": 1.029,
+        "p95_ms": 1.144,
+        "serialized_bytes": 346
+      }
+    },
+    {
+      "certificate_by_rank_count": {
+        "1": {
+          "min_ms": 0.004,
+          "p50_ms": 0.004,
+          "p95_ms": 0.045,
+          "serialized_bytes": 323
+        },
+        "2": {
+          "min_ms": 0.007,
+          "p50_ms": 0.008,
+          "p95_ms": 0.033,
+          "serialized_bytes": 392
+        },
+        "8": {
+          "min_ms": 0.026,
+          "p50_ms": 0.027,
+          "p95_ms": 0.061,
+          "serialized_bytes": 806
+        }
+      },
+      "manifest": {
+        "min_ms": 5.392,
+        "p50_ms": 5.498,
+        "p95_ms": 5.709
+      },
+      "parameter_count": 10000,
+      "plan": {
+        "min_ms": 15.838,
+        "p50_ms": 16.067,
+        "p95_ms": 17.194
+      },
+      "rank_local_receipt": {
+        "min_ms": 10.569,
+        "p50_ms": 10.781,
+        "p95_ms": 11.287,
+        "serialized_bytes": 347
+      }
+    },
+    {
+      "certificate_by_rank_count": {
+        "1": {
+          "min_ms": 0.004,
+          "p50_ms": 0.004,
+          "p95_ms": 0.036,
+          "serialized_bytes": 323
+        },
+        "2": {
+          "min_ms": 0.007,
+          "p50_ms": 0.008,
+          "p95_ms": 0.037,
+          "serialized_bytes": 392
+        },
+        "8": {
+          "min_ms": 0.026,
+          "p50_ms": 0.027,
+          "p95_ms": 0.065,
+          "serialized_bytes": 806
+        }
+      },
+      "manifest": {
+        "min_ms": 30.209,
+        "p50_ms": 30.735,
+        "p95_ms": 32.242
+      },
+      "parameter_count": 50000,
+      "plan": {
+        "min_ms": 87.284,
+        "p50_ms": 88.148,
+        "p95_ms": 89.39
+      },
+      "rank_local_receipt": {
+        "min_ms": 57.578,
+        "p50_ms": 58.497,
+        "p95_ms": 59.236,
+        "serialized_bytes": 347
+      }
+    }
+  ],
+  "platform": "macOS-26.5.2-arm64-arm-64bit",
+  "python": "3.12.13",
+  "repetitions": 10,
+  "schema_version": 1
+}

@@ -1,0 +1,48 @@
+{
+  "limitations": [
+    "The completion protocol probe was not wired into the real vLLM reload path.",
+    "The reload comparison used tiny synthetic Qwen3 checkpoints.",
+    "A RotaryEmbedding load warning remains a loader-coverage boundary."
+  ],
+  "protocol_probe": {
+    "backend": "nccl",
+    "certificate_digest": "f045373dc85790f2fd41bfb000b8479ce21e9b3bee4c4eefee39b22a2aef18ab",
+    "divergent_manifest_rejected": true,
+    "incomplete_rank_receipt_rejected": true,
+    "missing_rank_rejected": true,
+    "rank_receipts_are_distinct": true,
+    "status": "passed",
+    "world_size": 2
+  },
+  "reload_validation": {
+    "main": {
+      "compared_logprobs": 38,
+      "max_abs_logprob_delta": 0.0,
+      "reload_seconds": 0.18396826181560755,
+      "source_change_observed": true,
+      "status": "passed",
+      "token_ids_match": true
+    },
+    "session_pr": {
+      "compared_logprobs": 38,
+      "max_abs_logprob_delta": 0.0,
+      "reload_seconds": 0.15425474662333727,
+      "source_change_observed": true,
+      "status": "passed",
+      "token_ids_match": true
+    }
+  },
+  "runtime": {
+    "accelerators": "2x NVIDIA H20",
+    "cuda": "13.0",
+    "python": "3.12.11",
+    "tensor_parallel_size": 2,
+    "torch": "2.11.0+cu130"
+  },
+  "schema_version": 1,
+  "source_identity": {
+    "binary_base": "e94243893dd30256f58644ad4ecf779be757dff8",
+    "main": "e94243893dd30256f58644ad4ecf779be757dff8",
+    "session_pr_48908": "71a5d8b62abb520ff0784bec7cb6832fd079cd38"
+  }
+}

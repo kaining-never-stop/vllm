@@ -9,10 +9,11 @@ import torch
 if TYPE_CHECKING:
     from vllm.model_executor.model_loader.load_session import WeightLoadSession
 
-__all__ = ["LayerTensors", "LayerReloadingInfo"]
+__all__ = ["LayerTensors", "WeightApplicationKey", "LayerReloadingInfo"]
 
 # encodes both parameters and buffers separately
 LayerTensors = tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]
+WeightApplicationKey = tuple[str, tuple[tuple[str, str], ...]]
 
 
 @dataclass
@@ -29,6 +30,10 @@ class LayerReloadingInfo:
 
     # used by `online_process_loader` to buffer args and tensors until ready to load
     loaded_weights: list[tuple[str, BoundArguments]] = field(default_factory=list)
+
+    # Element counts schedule layer processing but cannot distinguish a duplicate
+    # direct load from valid packed/expert applications to the same parameter.
+    applied_weight_keys: set[WeightApplicationKey] = field(default_factory=set)
 
     # kernel formatted tensors, copied into by `_layerwise_process` when reloading
     kernel_tensors: LayerTensors | None = None

@@ -35,6 +35,15 @@ from .utils import (
 
 logger = init_logger(__name__)
 
+_WEIGHT_APPLICATION_SELECTORS = (
+    "weight_name",
+    "param_name",
+    "shard_id",
+    "loaded_shard_id",
+    "loaded_weight_shard_id",
+    "expert_id",
+)
+
 __all__ = [
     "get_layerwise_info",
     "record_metadata_for_reloading",
@@ -208,6 +217,14 @@ def make_online_process_loader(layer: torch.nn.Module, param_name: str) -> Calla
         bound_args = loader_signature.bind(*args, **kwargs)
         bound_args.apply_defaults()
 
+        application_key = _weight_application_key(param_name, bound_args)
+        if application_key in info.applied_weight_keys:
+            raise ValueError(
+                "duplicate weight application: "
+                f"parameter={param_name!r}, selectors={dict(application_key[1])!r}"
+            )
+        info.applied_weight_keys.add(application_key)
+
         # Buffer loaded weights, track loading progress
         info.loaded_weights.append((param_name, bound_args))
         num_loaded, ret = get_numel_loaded(original_loader, bound_args)
@@ -248,6 +265,43 @@ def make_online_process_loader(layer: torch.nn.Module, param_name: str) -> Calla
         return ret
 
     return online_process_loader
+
+
+def _weight_application_key(
+    param_name: str, bound_args: inspect.BoundArguments
+) -> tuple[str, tuple[tuple[str, str], ...]]:
+    """Identify one direct, packed-shard, or expert-shard loader application."""
+    selectors = [
+        (name, repr(bound_args.arguments[name]))
+        for name in _WEIGHT_APPLICATION_SELECTORS
+        if name in bound_args.arguments
+    ]
+
+    # Some quantization wrappers forward routing selectors through *args/**kwargs
+    # without preserving the wrapped loader's signature. Retain that opaque payload
+    # so distinct packed shards do not collapse to the same application identity.
+    signature = bound_args.signature
+    explicit_weight_args = sum(
+        name in signature.parameters for name in ("param", "loaded_weight")
+    )
+    for name, parameter in signature.parameters.items():
+        value = bound_args.arguments.get(name)
+        if parameter.kind is inspect.Parameter.VAR_POSITIONAL:
+            positional_values = tuple(value or ())
+            positional_values = positional_values[2 - explicit_weight_args :]
+            selectors.extend(
+                (f"*{name}[{index}]", repr(item))
+                for index, item in enumerate(positional_values)
+            )
+        elif parameter.kind is inspect.Parameter.VAR_KEYWORD:
+            keyword_values = value or {}
+            selectors.extend(
+                (f"**{name}.{key}", repr(keyword_values[key]))
+                for key in sorted(keyword_values)
+                if key not in {"param", "loaded_weight", "return_success"}
+            )
+
+    return param_name, tuple(selectors)
 
 
 def _finish_layerwise_loading(

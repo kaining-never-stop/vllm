@@ -270,6 +270,170 @@ class _ComposedLoaderLayer(torch.nn.Module):
         self.dt_bias.weight_loader = default_weight_loader
 
 
+class _DuplicateCompletionLayer(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.left = torch.nn.Parameter(torch.zeros(4))
+        self.right = torch.nn.Parameter(torch.zeros(4))
+
+
+class _PackedApplicationLayer(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.zeros(8))
+
+        def packed_loader(param, loaded_weight, loaded_shard_id):
+            offset = {"q": 0, "k": 4}[loaded_shard_id]
+            param.data[offset : offset + loaded_weight.numel()].copy_(loaded_weight)
+
+        self.weight.weight_loader = packed_loader
+
+
+class _ForwardingPackedApplicationLayer(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.zeros(8))
+
+        def packed_loader(param, loaded_weight, loaded_shard_id):
+            offset = {"q": 0, "k": 4}[loaded_shard_id]
+            param.data[offset : offset + loaded_weight.numel()].copy_(loaded_weight)
+
+        def forwarding_loader(param, loaded_weight, *args, **kwargs):
+            return packed_loader(param, loaded_weight, *args, **kwargs)
+
+        self.weight.weight_loader = forwarding_loader
+
+
+class _ExpertApplicationLayer(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.zeros(8))
+
+        def expert_loader(param, loaded_weight, weight_name, shard_id, expert_id):
+            del weight_name, shard_id
+            offset = expert_id * loaded_weight.numel()
+            param.data[offset : offset + loaded_weight.numel()].copy_(loaded_weight)
+
+        self.weight.weight_loader = expert_loader
+
+
+def test_layerwise_reload_rejects_duplicate_that_masks_missing_sibling(monkeypatch):
+    layer = _DuplicateCompletionLayer()
+    model = torch.nn.Sequential(layer)
+
+    def materialize_with_sentinel(meta_tensor):
+        tensor = torch.empty_strided(
+            size=tuple(meta_tensor.size()),
+            stride=tuple(meta_tensor.stride()),
+            dtype=meta_tensor.dtype,
+            requires_grad=False,
+        )
+        tensor.fill_(float("nan"))
+        tensor.__class__ = meta_tensor.__class__
+        tensor.__dict__ = meta_tensor.__dict__.copy()
+        return tensor
+
+    monkeypatch.setattr(
+        reload_meta, "materialize_meta_tensor", materialize_with_sentinel
+    )
+
+    record_metadata_for_reloading(model)
+    session = _prepare_reload(model)
+    params = dict(layer.named_parameters())
+
+    try:
+        # Replaying left reaches the layer's numel total while right is absent.
+        # A strict implementation may reject either the second application or
+        # transaction finalization.
+        params["left"].weight_loader(params["left"], torch.ones(4))
+        params["left"].weight_loader(params["left"], torch.full((4,), 2.0))
+        _finish_reload(session)
+    except ValueError as exc:
+        message = str(exc).lower()
+        assert any(word in message for word in ("duplicate", "incomplete", "missing"))
+        return
+
+    pytest.fail(
+        "duplicate application completed without rejection; "
+        f"right_all_nan={torch.isnan(layer.right).all().item()}"
+    )
+
+
+def test_layerwise_reload_allows_distinct_packed_shard_applications():
+    layer = _PackedApplicationLayer()
+    model = torch.nn.Sequential(layer)
+
+    record_metadata_for_reloading(model)
+    session = _prepare_reload(model)
+    param = dict(layer.named_parameters())["weight"]
+    param.weight_loader(param, torch.ones(4), "q")
+    param.weight_loader(param, torch.full((4,), 2.0), "k")
+    _finish_reload(session)
+
+    assert torch.equal(layer.weight[:4], torch.ones(4))
+    assert torch.equal(layer.weight[4:], torch.full((4,), 2.0))
+
+
+def test_layerwise_reload_allows_variadic_forwarded_packed_shards():
+    layer = _ForwardingPackedApplicationLayer()
+    model = torch.nn.Sequential(layer)
+
+    record_metadata_for_reloading(model)
+    session = _prepare_reload(model)
+    param = dict(layer.named_parameters())["weight"]
+    param.weight_loader(param, torch.ones(4), "q")
+    param.weight_loader(param, torch.full((4,), 2.0), "k")
+    _finish_reload(session)
+
+    assert torch.equal(layer.weight[:4], torch.ones(4))
+    assert torch.equal(layer.weight[4:], torch.full((4,), 2.0))
+
+
+def test_layerwise_reload_rejects_duplicate_variadic_forwarded_shard():
+    layer = _ForwardingPackedApplicationLayer()
+    model = torch.nn.Sequential(layer)
+
+    record_metadata_for_reloading(model)
+    session = _prepare_reload(model)
+    param = dict(layer.named_parameters())["weight"]
+    try:
+        param.weight_loader(param, torch.ones(4), "q")
+        with pytest.raises(ValueError, match="duplicate weight application"):
+            param.weight_loader(param, torch.full((4,), 2.0), "q")
+    finally:
+        session.abort()
+
+
+def test_layerwise_reload_allows_distinct_expert_applications():
+    layer = _ExpertApplicationLayer()
+    model = torch.nn.Sequential(layer)
+
+    record_metadata_for_reloading(model)
+    session = _prepare_reload(model)
+    param = dict(layer.named_parameters())["weight"]
+    param.weight_loader(param, torch.ones(4), "gate", "w1", 0)
+    param.weight_loader(param, torch.full((4,), 2.0), "gate", "w1", 1)
+    _finish_reload(session)
+
+    assert torch.equal(layer.weight[:4], torch.ones(4))
+    assert torch.equal(layer.weight[4:], torch.full((4,), 2.0))
+
+
+def test_layerwise_reload_rejects_duplicate_expert_application():
+    layer = _ExpertApplicationLayer()
+    model = torch.nn.Sequential(layer)
+
+    record_metadata_for_reloading(model)
+    session = _prepare_reload(model)
+    param = dict(layer.named_parameters())["weight"]
+    try:
+        param.weight_loader(param, torch.ones(4), "gate", "w1", 0)
+        with pytest.raises(ValueError, match="duplicate weight application"):
+            param.weight_loader(param, torch.full((4,), 2.0), "gate", "w1", 0)
+    finally:
+        session.abort()
+
+
 def test_layerwise_reload_composed_loader_does_not_drop_params(monkeypatch):
     # Regression test: a composed_weight_loader param (A) used to double-count
     # its elements, finalizing the layer before the trailing param (D) was
